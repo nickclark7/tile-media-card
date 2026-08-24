@@ -454,29 +454,81 @@ class TileMediaCard extends LitElement {
 
 customElements.define("tile-media-card", TileMediaCard);
 
-const EDITOR_SCHEMA = [
-  { name: "entity", selector: { entity: { domain: "media_player" } } },
-  { name: "hide_art_when_idle", selector: { boolean: {} } },
-];
-
 const EDITOR_LABELS = {
   entity: "Entity",
   hide_art_when_idle: "Hide album art when nothing is playing",
+  hide_titles: "Hide items in the media browser",
 };
 
 class TileMediaCardEditor extends LitElement {
   static get properties() {
-    return { hass: {}, _config: { state: true } };
+    return {
+      hass: {},
+      _config: { state: true },
+      _rootItems: { state: true },
+      _rootError: { state: true },
+    };
   }
 
   setConfig(config) {
     this._config = {
       hide_art_when_idle: false,
+      hide_titles: [],
       ...config,
     };
   }
 
+  updated(changedProps) {
+    if ((changedProps.has("_config") || changedProps.has("hass")) && this.hass) {
+      this._maybeLoadRootItems();
+    }
+  }
+
+  // Fetch the top-level browse items for the configured entity so the editor
+  // can offer real folder/category names (e.g. "Images") to hide, instead of
+  // asking the user to guess and type them by hand.
+  async _maybeLoadRootItems() {
+    const entity = this._config?.entity;
+    if (!entity || entity === this._rootItemsEntity) return;
+    this._rootItemsEntity = entity;
+    this._rootError = null;
+    try {
+      const result = await this.hass.callWS({
+        type: "media_player/browse_media",
+        entity_id: entity,
+      });
+      this._rootItems = [...new Set((result.children || []).map((item) => item.title))];
+    } catch (err) {
+      this._rootItems = [];
+      this._rootError = err.message || "Could not load media browser items";
+    }
+  }
+
+  get _schema() {
+    return [
+      { name: "entity", selector: { entity: { domain: "media_player" } } },
+      { name: "hide_art_when_idle", selector: { boolean: {} } },
+      {
+        name: "hide_titles",
+        selector: {
+          select: {
+            multiple: true,
+            custom_value: true,
+            options: this._rootItems || [],
+          },
+        },
+      },
+    ];
+  }
+
   _computeLabel = (schema) => EDITOR_LABELS[schema.name] || schema.name;
+
+  _computeHelper = (schema) =>
+    schema.name === "hide_titles"
+      ? this._rootError
+        ? `${this._rootError} — you can still type a name manually.`
+        : "Pick from the entity's top-level browse items, or type a name (matches anywhere in the title, case-insensitive)."
+      : undefined;
 
   _valueChanged = (ev) => {
     this.dispatchEvent(
@@ -494,8 +546,9 @@ class TileMediaCardEditor extends LitElement {
       <ha-form
         .hass=${this.hass}
         .data=${this._config}
-        .schema=${EDITOR_SCHEMA}
+        .schema=${this._schema}
         .computeLabel=${this._computeLabel}
+        .computeHelper=${this._computeHelper}
         @value-changed=${this._valueChanged}
       ></ha-form>
     `;
