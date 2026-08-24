@@ -211,27 +211,47 @@ class TileMediaCard extends LitElement {
     this._searchDebounce = setTimeout(() => this._runRootSearch(query), 350);
   };
 
-  // Whole-library search via media_player/search_media - a real HA API for
-  // exactly this, searching everything the backend (e.g. Music Assistant)
-  // indexes rather than just the root's own category folders. Results go
-  // through the same hide_titles/hide_media_classes filtering as normal
-  // browsing so hidden sources stay hidden here too.
+  // Whole-library search runs two searches in parallel and merges them:
+  //  - media_player/search_media (entity-scoped) - searches whatever the
+  //    entity's own integration indexes (e.g. Music Assistant's own
+  //    artists/albums/tracks/playlists/radio/podcasts/audiobooks).
+  //  - media_source/search_media (entity-independent, no media_content_id) -
+  //    aggregates every *other* registered media source (Radio Browser,
+  //    Local Media, etc.) that got merged into the browse tree for
+  //    navigation but that the entity's own search never reaches, because
+  //    integrations only search their own catalog, not sibling sources
+  //    merged in for browsing.
+  // Both go through the same hide_titles/hide_media_classes filtering as
+  // normal browsing, and either can fail independently (Promise.allSettled)
+  // without losing the other's results.
   _runRootSearch = async (query) => {
     const token = (this._searchToken += 1);
     this._searchLoading = true;
     this._searchError = null;
     try {
-      const result = await this.hass.callWS({
-        type: "media_player/search_media",
-        entity_id: this._config.entity,
-        search_query: query,
-      });
+      const [entityResult, sourceResult] = await Promise.allSettled([
+        this.hass.callWS({
+          type: "media_player/search_media",
+          entity_id: this._config.entity,
+          search_query: query,
+        }),
+        this.hass.callWS({
+          type: "media_source/search_media",
+          search_query: query,
+        }),
+      ]);
       if (token !== this._searchToken) return;
-      this._searchResults = this._filterItems(result.result || []);
-    } catch (err) {
-      if (token !== this._searchToken) return;
-      this._searchError = err.message || "Search failed";
-      this._searchResults = [];
+
+      const results = [
+        ...(entityResult.status === "fulfilled" ? entityResult.value.result || [] : []),
+        ...(sourceResult.status === "fulfilled" ? sourceResult.value.result || [] : []),
+      ];
+      this._searchResults = this._filterItems(results);
+
+      if (entityResult.status === "rejected" && sourceResult.status === "rejected") {
+        this._searchError =
+          entityResult.reason?.message || sourceResult.reason?.message || "Search failed";
+      }
     } finally {
       if (token === this._searchToken) this._searchLoading = false;
     }
