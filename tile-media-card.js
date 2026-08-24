@@ -58,6 +58,22 @@ class TileMediaCard extends LitElement {
     return document.createElement("tile-media-card-editor");
   }
 
+  // Without this, HA's Layout tab (the size picker in the card editor's
+  // "Layout" section) falls back to its own built-in default cap of 8 rows,
+  // regardless of what's actually achievable via grid_options in YAML.
+  // Declaring generous bounds here raises that native picker's max directly,
+  // instead of leaving height/width only settable through YAML.
+  getGridOptions() {
+    return {
+      columns: 12,
+      rows: "auto",
+      min_columns: 4,
+      max_columns: 12,
+      min_rows: 1,
+      max_rows: 30,
+    };
+  }
+
   getCardSize() {
     return 4;
   }
