@@ -237,21 +237,26 @@ class TileMediaCard extends LitElement {
   // unreliable, sometimes not showing the back control at all. This is
   // simpler and guaranteed visible, pinned to the top while the grid below
   // it scrolls.
+  // Uses ha-dialog's actual header slot API (headerNavigationIcon /
+  // headerTitle / headerActionItems) instead of a hand-rolled header div.
+  // headerNavigationIcon falls back to its own default close button when
+  // nothing is slotted into it, so we always provide *something* there (a
+  // back button, or an empty span) to keep control of what shows - the
+  // explicit close button lives on the right, in headerActionItems, which
+  // has no such fallback.
   _renderBrowseDialog() {
     return html`
-      <ha-dialog open hideActions @closed=${this._closeBrowse}>
-        <div class="browse-header">
+      <ha-dialog open @closed=${this._closeBrowse} .headerTitle=${this._browseTitle}>
+        <span slot="headerNavigationIcon">
           ${this._browseStack.length
-            ? html`<button class="back-button" @click=${this._browseBack}>
+            ? html`<ha-icon-button @click=${this._browseBack}>
                 <ha-icon icon="mdi:arrow-left"></ha-icon>
-                <span>Back</span>
-              </button>`
-            : html`<span class="spacer"></span>`}
-          <span class="browse-title">${this._browseTitle}</span>
-          <ha-icon-button @click=${this._closeBrowse}>
-            <ha-icon icon="mdi:close"></ha-icon>
-          </ha-icon-button>
-        </div>
+              </ha-icon-button>`
+            : ""}
+        </span>
+        <ha-icon-button slot="headerActionItems" @click=${this._closeBrowse}>
+          <ha-icon icon="mdi:close"></ha-icon>
+        </ha-icon-button>
 
         ${this._browseLoading
           ? html`<div class="browse-loading">Loading…</div>`
@@ -385,44 +390,6 @@ class TileMediaCard extends LitElement {
         --mdc-dialog-min-width: min(90vw, 480px);
         --mdc-dialog-max-width: min(90vw, 480px);
         --mdc-dialog-max-height: 80vh;
-      }
-      .browse-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: -20px -24px 12px;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--divider-color);
-        background: var(--card-background-color, white);
-      }
-      .back-button {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        border: none;
-        background: none;
-        font: inherit;
-        padding: 8px 12px 8px 8px;
-        margin: -8px 0 -8px -8px;
-        border-radius: 20px;
-        cursor: pointer;
-        color: var(--primary-color);
-        font-size: 0.9rem;
-        font-weight: 500;
-        flex-shrink: 0;
-      }
-      .back-button:hover {
-        background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.1);
-      }
-      .spacer {
-        width: 48px;
-      }
-      .browse-title {
-        flex: 1;
-        font-weight: 500;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
       .browse-loading,
       .browse-empty {
