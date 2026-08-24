@@ -637,6 +637,8 @@ const EDITOR_LABELS = {
   entity: "Entity",
   hide_art_when_idle: "Hide album art when nothing is playing",
   hide_titles: "Hide items in the media browser",
+  grid_height: "Card height (rows)",
+  grid_width: "Card width (columns)",
 };
 
 class TileMediaCardEditor extends LitElement {
@@ -697,22 +699,69 @@ class TileMediaCardEditor extends LitElement {
           },
         },
       },
+      {
+        name: "grid_size",
+        type: "grid",
+        schema: [
+          { name: "grid_height", selector: { number: { min: 1, max: 30, mode: "box" } } },
+          { name: "grid_width", selector: { number: { min: 1, max: 12, mode: "box" } } },
+        ],
+      },
     ];
+  }
+
+  // Sets grid_options.rows/columns directly, bypassing HA's Layout tab -
+  // that native picker's slider caps out well below what grid_options
+  // actually supports (HA falls back to a built-in max of 8 rows unless the
+  // card raises it), so these fields exist as a guaranteed way to set an
+  // exact size regardless of what that picker allows.
+  get _formData() {
+    const gridOptions = this._config.grid_options || {};
+    return {
+      ...this._config,
+      grid_height: typeof gridOptions.rows === "number" ? gridOptions.rows : undefined,
+      grid_width: typeof gridOptions.columns === "number" ? gridOptions.columns : undefined,
+    };
   }
 
   _computeLabel = (schema) => EDITOR_LABELS[schema.name] || schema.name;
 
-  _computeHelper = (schema) =>
-    schema.name === "hide_titles"
-      ? this._rootError
+  _computeHelper = (schema) => {
+    if (schema.name === "hide_titles") {
+      return this._rootError
         ? `${this._rootError} — you can still type a name manually.`
-        : "Pick from the entity's top-level browse items, or type a name (matches anywhere in the title, case-insensitive)."
-      : undefined;
+        : "Pick from the entity's top-level browse items, or type a name (matches anywhere in the title, case-insensitive).";
+    }
+    if (schema.name === "grid_height" || schema.name === "grid_width") {
+      return "Leave blank to use the Layout tab's setting instead.";
+    }
+    return undefined;
+  };
 
   _valueChanged = (ev) => {
+    const { grid_height, grid_width, ...config } = ev.detail.value;
+
+    const gridOptions = { ...(this._config.grid_options || {}) };
+    if (grid_height) {
+      gridOptions.rows = grid_height;
+    } else {
+      delete gridOptions.rows;
+    }
+    if (grid_width) {
+      gridOptions.columns = grid_width;
+    } else {
+      delete gridOptions.columns;
+    }
+
+    if (Object.keys(gridOptions).length) {
+      config.grid_options = gridOptions;
+    } else {
+      delete config.grid_options;
+    }
+
     this.dispatchEvent(
       new CustomEvent("config-changed", {
-        detail: { config: ev.detail.value },
+        detail: { config },
         bubbles: true,
         composed: true,
       })
@@ -724,7 +773,7 @@ class TileMediaCardEditor extends LitElement {
     return html`
       <ha-form
         .hass=${this.hass}
-        .data=${this._config}
+        .data=${this._formData}
         .schema=${this._schema}
         .computeLabel=${this._computeLabel}
         .computeHelper=${this._computeHelper}
