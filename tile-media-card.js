@@ -702,6 +702,12 @@ class TileMediaCardEditor extends LitElement {
       {
         name: "grid_size",
         type: "grid",
+        // Without this, ha-form nests both the initial values *and* the
+        // change event's value under a "grid_size" key instead of treating
+        // grid_height/grid_width as flat fields - silently writing a stray
+        // top-level `grid_size:` block into the saved config instead of
+        // grid_height/grid_width being usable as flat field names.
+        flatten: true,
         schema: [
           { name: "grid_height", selector: { number: { min: 1, max: 30, mode: "box" } } },
           { name: "grid_width", selector: { number: { min: 1, max: 12, mode: "box" } } },
@@ -739,7 +745,11 @@ class TileMediaCardEditor extends LitElement {
   };
 
   _valueChanged = (ev) => {
-    const { grid_height, grid_width, ...config } = ev.detail.value;
+    // grid_size is stripped defensively - earlier versions of this editor
+    // (missing flatten: true on the grid schema wrapper) could write it as
+    // a stray top-level key instead of updating grid_options; dropping it
+    // here self-heals any config saved while that bug was live.
+    const { grid_height, grid_width, grid_size, ...config } = ev.detail.value;
 
     const gridOptions = { ...(this._config.grid_options || {}) };
     if (grid_height) {
