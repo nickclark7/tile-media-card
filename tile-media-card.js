@@ -17,6 +17,7 @@ class TileMediaCard extends LitElement {
       _browseTitle: { state: true },
       _browseLoading: { state: true },
       _browseError: { state: true },
+      _browseFilter: { state: true },
     };
   }
 
@@ -31,6 +32,7 @@ class TileMediaCard extends LitElement {
     this._browseTitle = "";
     this._browseLoading = false;
     this._browseError = null;
+    this._browseFilter = "";
   }
 
   static getStubConfig() {
@@ -105,6 +107,7 @@ class TileMediaCard extends LitElement {
   async _loadBrowse(item) {
     this._browseLoading = true;
     this._browseError = null;
+    this._browseFilter = "";
     try {
       const result = await this.hass.callWS({
         type: "media_player/browse_media",
@@ -156,6 +159,22 @@ class TileMediaCard extends LitElement {
     });
     this._closeBrowse();
   };
+
+  _browseFilterChanged = (ev) => {
+    this._browseFilter = ev.target.value || "";
+  };
+
+  // Live, in-memory filter over whatever screen is currently showing
+  // (artists, albums, tracks, ...) - separate from the config-driven
+  // hide_titles/hide_media_classes filtering already baked into
+  // _browseItems, and reset on every navigation via _loadBrowse.
+  get _visibleBrowseItems() {
+    const filter = this._browseFilter.trim().toLowerCase();
+    if (!filter) return this._browseItems;
+    return this._browseItems.filter((item) =>
+      (item.title || "").toLowerCase().includes(filter)
+    );
+  }
 
   render() {
     if (!this.hass || !this._config) return html``;
@@ -232,11 +251,6 @@ class TileMediaCard extends LitElement {
     `;
   }
 
-  // Rendered as a plain sticky bar in the dialog's normal content flow
-  // (not ha-dialog's "heading" slot) - that slot/heading-property combo was
-  // unreliable, sometimes not showing the back control at all. This is
-  // simpler and guaranteed visible, pinned to the top while the grid below
-  // it scrolls.
   // Uses ha-dialog's actual header slot API (headerNavigationIcon /
   // headerTitle / headerActionItems) instead of a hand-rolled header div.
   // headerNavigationIcon falls back to its own default close button when
@@ -263,8 +277,15 @@ class TileMediaCard extends LitElement {
           : this._browseError
           ? html`<div class="browse-loading">${this._browseError}</div>`
           : html`
+              ${this._browseItems.length
+                ? html`<ha-input-search
+                    class="browse-search"
+                    .value=${this._browseFilter}
+                    @input=${this._browseFilterChanged}
+                  ></ha-input-search>`
+                : ""}
               <div class="browse-grid">
-                ${this._browseItems.map(
+                ${this._visibleBrowseItems.map(
                   (item) => html`
                     <div class="browse-item" @click=${() => this._selectItem(item)}>
                       <div
@@ -292,6 +313,8 @@ class TileMediaCard extends LitElement {
                 )}
                 ${!this._browseItems.length
                   ? html`<div class="browse-empty">Nothing here</div>`
+                  : !this._visibleBrowseItems.length
+                  ? html`<div class="browse-empty">No matches for "${this._browseFilter}"</div>`
                   : ""}
               </div>
             `}
@@ -390,6 +413,10 @@ class TileMediaCard extends LitElement {
         --mdc-dialog-min-width: min(90vw, 480px);
         --mdc-dialog-max-width: min(90vw, 480px);
         --mdc-dialog-max-height: 80vh;
+      }
+      .browse-search {
+        display: block;
+        margin: 0 4px 4px;
       }
       .browse-loading,
       .browse-empty {
