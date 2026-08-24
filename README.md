@@ -11,10 +11,14 @@ albums, artists, and playlists without leaving the page.
 Built for a Music Assistant-backed `media_player` entity, but works with any
 `media_player` that supports `browse_media`.
 
-<img width="439" height="527" alt="image" src="https://github.com/user-attachments/assets/ae90b611-ac29-4c18-9a99-a3c07ef9d37a" />
-<img width="559" height="452" alt="image" src="https://github.com/user-attachments/assets/47805ad6-08b7-4a3f-89f0-536e4541efe6" />
-<img width="567" height="886" alt="image" src="https://github.com/user-attachments/assets/28d7dacd-cb93-4e7e-a4fc-df822e1d23fb" />
-<img width="920" height="680" alt="image" src="https://github.com/user-attachments/assets/ee8eac52-fe60-47df-89fb-8a91380d5096" />
+<table>
+<tr>
+<td><img src="https://github.com/user-attachments/assets/ae90b611-ac29-4c18-9a99-a3c07ef9d37a" height="300"/></td>
+<td><img src="https://github.com/user-attachments/assets/47805ad6-08b7-4a3f-89f0-536e4541efe6" height="300"/></td>
+<td><img src="https://github.com/user-attachments/assets/28d7dacd-cb93-4e7e-a4fc-df822e1d23fb" height="300"/></td>
+<td><img src="https://github.com/user-attachments/assets/ee8eac52-fe60-47df-89fb-8a91380d5096" height="300"/></td>
+</tr>
+</table>
 
 
 ## Why
