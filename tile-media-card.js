@@ -18,7 +18,6 @@ class TileMediaCard extends LitElement {
       _browseLoading: { state: true },
       _browseError: { state: true },
       _browseFilter: { state: true },
-      _rootCanSearch: { state: true },
       _searchResults: { state: true },
       _searchLoading: { state: true },
       _searchError: { state: true },
@@ -37,7 +36,6 @@ class TileMediaCard extends LitElement {
     this._browseLoading = false;
     this._browseError = null;
     this._browseFilter = "";
-    this._rootCanSearch = false;
     this._searchResults = null;
     this._searchLoading = false;
     this._searchError = null;
@@ -133,12 +131,6 @@ class TileMediaCard extends LitElement {
       });
       this._browseTitle = result.title || "Browse";
       this._browseItems = this._filterItems(result.children || []);
-      // Whole-library search (media_player/search_media) is only offered on
-      // the root screen - once you've drilled into a specific folder/source,
-      // the filter box reverts to just filtering what's already loaded.
-      if (item === undefined) {
-        this._rootCanSearch = !!result.can_search;
-      }
     } catch (err) {
       this._browseError = err.message || "Could not load media";
       this._browseItems = [];
@@ -182,11 +174,21 @@ class TileMediaCard extends LitElement {
     this._closeBrowse();
   };
 
-  // Root screen only, and only if the entity's browse root reports
-  // can_search - everywhere else the filter box just filters what's
-  // already on screen (see _visibleBrowseItems).
+  // Root screen only, and only if the entity itself reports the
+  // SEARCH_MEDIA feature bit (MediaPlayerEntityFeature.SEARCH_MEDIA =
+  // 4194304) - the actual capability HA enforces server-side for
+  // media_player/search_media. Deliberately not using the browse root's own
+  // can_search hint: some integrations (e.g. Music Assistant) set that to
+  // false at the true root purely as a hint for HA's stock browse dialog,
+  // even though the backend fully supports a global, unscoped search when
+  // called without a media_content_id - which is exactly the "search
+  // everything" behavior wanted here. Everywhere past the root screen, the
+  // filter box just filters what's already on screen (see
+  // _visibleBrowseItems).
   get _isRootSearchable() {
-    return this._browseStack.length === 0 && this._rootCanSearch;
+    const SEARCH_MEDIA_FEATURE = 4194304;
+    const supported = this._stateObj?.attributes?.supported_features ?? 0;
+    return this._browseStack.length === 0 && (supported & SEARCH_MEDIA_FEATURE) !== 0;
   }
 
   get _isSearching() {
