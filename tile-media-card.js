@@ -6,6 +6,8 @@
 
 import { LitElement, html, css } from "https://esm.sh/lit@3";
 
+const SEARCH_RESULTS_DISPLAY_LIMIT = 60;
+
 class TileMediaCard extends LitElement {
   static get properties() {
     return {
@@ -211,46 +213,56 @@ class TileMediaCard extends LitElement {
     this._searchDebounce = setTimeout(() => this._runRootSearch(query), 350);
   };
 
-  // Whole-library search runs two searches in parallel and merges them:
+  // Whole-library search fans out to every source visible on the root
+  // screen and merges the results:
   //  - media_player/search_media (entity-scoped) - searches whatever the
   //    entity's own integration indexes (e.g. Music Assistant's own
   //    artists/albums/tracks/playlists/radio/podcasts/audiobooks).
-  //  - media_source/search_media (entity-independent, no media_content_id) -
-  //    aggregates every *other* registered media source (Radio Browser,
-  //    Local Media, etc.) that got merged into the browse tree for
-  //    navigation but that the entity's own search never reaches, because
-  //    integrations only search their own catalog, not sibling sources
-  //    merged in for browsing.
-  // Both go through the same hide_titles/hide_media_classes filtering as
-  // normal browsing, and either can fail independently (Promise.allSettled)
-  // without losing the other's results.
+  //  - media_source/search_media, once per merged-in media-source:// root
+  //    item (Radio Browser, Local Media, etc.) - each of those is a
+  //    separate integration that only searches its own catalog, and HA
+  //    deliberately doesn't support an unscoped "search every source at
+  //    once" call (NotImplementedError - "would possibly return 100s of
+  //    items"), so each has to be searched individually.
+  // The source list comes from _browseItems, which already went through
+  // hide_titles/hide_media_classes when it loaded, so a hidden source is
+  // never queried at all. Every call can fail independently
+  // (Promise.allSettled) without losing the others' results.
   _runRootSearch = async (query) => {
     const token = (this._searchToken += 1);
     this._searchLoading = true;
     this._searchError = null;
     try {
-      const [entityResult, sourceResult] = await Promise.allSettled([
+      const mediaSources = this._browseItems.filter((item) =>
+        (item.media_content_id || "").startsWith("media-source://")
+      );
+      const settled = await Promise.allSettled([
         this.hass.callWS({
           type: "media_player/search_media",
           entity_id: this._config.entity,
           search_query: query,
         }),
-        this.hass.callWS({
-          type: "media_source/search_media",
-          search_query: query,
-        }),
+        ...mediaSources.map((source) =>
+          this.hass.callWS({
+            type: "media_source/search_media",
+            media_content_id: source.media_content_id,
+            search_query: query,
+          })
+        ),
       ]);
       if (token !== this._searchToken) return;
 
-      const results = [
-        ...(entityResult.status === "fulfilled" ? entityResult.value.result || [] : []),
-        ...(sourceResult.status === "fulfilled" ? sourceResult.value.result || [] : []),
-      ];
+      // Some sources (Radio Browser especially) can return thousands of
+      // matches for a common word - cap each source's contribution so one
+      // large catalog can't crowd out the others, then filter.
+      const PER_SOURCE_LIMIT = 20;
+      const results = settled.flatMap((r) =>
+        r.status === "fulfilled" ? (r.value.result || []).slice(0, PER_SOURCE_LIMIT) : []
+      );
       this._searchResults = this._filterItems(results);
 
-      if (entityResult.status === "rejected" && sourceResult.status === "rejected") {
-        this._searchError =
-          entityResult.reason?.message || sourceResult.reason?.message || "Search failed";
+      if (settled.every((r) => r.status === "rejected")) {
+        this._searchError = settled[0].reason?.message || "Search failed";
       }
     } finally {
       if (token === this._searchToken) this._searchLoading = false;
@@ -379,12 +391,22 @@ class TileMediaCard extends LitElement {
                   ></ha-input-search>`
                 : ""}
               ${this._isSearching
-                ? this._renderItemsGrid(
-                    this._searchResults || [],
-                    this._searchLoading ? "Searching…" : null,
-                    this._searchError,
-                    `No results for "${this._browseFilter}"`
-                  )
+                ? html`
+                    ${this._renderItemsGrid(
+                      (this._searchResults || []).slice(0, SEARCH_RESULTS_DISPLAY_LIMIT),
+                      this._searchLoading ? "Searching…" : null,
+                      this._searchError,
+                      `No results for "${this._browseFilter}"`
+                    )}
+                    ${!this._searchLoading &&
+                    !this._searchError &&
+                    (this._searchResults || []).length > SEARCH_RESULTS_DISPLAY_LIMIT
+                      ? html`<div class="browse-search-hint">
+                          Showing top ${SEARCH_RESULTS_DISPLAY_LIMIT} of ${this._searchResults.length}
+                          matches — refine your search for more
+                        </div>`
+                      : ""}
+                  `
                 : this._renderItemsGrid(
                     this._visibleBrowseItems,
                     null,
@@ -529,6 +551,12 @@ class TileMediaCard extends LitElement {
       .browse-search {
         display: block;
         margin: 0 4px 4px;
+      }
+      .browse-search-hint {
+        padding: 4px 16px 12px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: var(--secondary-text-color);
       }
       .browse-loading,
       .browse-empty {
