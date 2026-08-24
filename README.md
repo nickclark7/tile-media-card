@@ -1,5 +1,8 @@
 # Tile Media Card
 
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![Open your Home Assistant instance and add this repository to HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=nickclark7&repository=tile-media-card&category=plugin)
+
 A Lovelace media player card for Home Assistant that looks and behaves like HA's
 own native tile card — same control row, same volume slider style — just built
 around a big cover art tile, with an in-dashboard media browser that plays whole
@@ -38,10 +41,14 @@ browse-and-play overlay built in.
 
 ### HACS (custom repository)
 
+Click the "Open your Home Assistant instance" badge above for a one-click add, or do it manually:
+
 1. HACS → the ⋮ menu → **Custom repositories**
 2. Add this repo URL, category **Dashboard**
 3. Install **Tile Media Card**, then add the resource if HACS doesn't do it
    automatically
+
+Not familiar with custom repositories? See HACS's [Custom repositories guide](https://hacs.xyz/docs/faq/custom_repositories/).
 
 ### Manual
 
