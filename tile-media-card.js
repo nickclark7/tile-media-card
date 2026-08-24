@@ -18,6 +18,10 @@ class TileMediaCard extends LitElement {
       _browseLoading: { state: true },
       _browseError: { state: true },
       _browseFilter: { state: true },
+      _rootCanSearch: { state: true },
+      _searchResults: { state: true },
+      _searchLoading: { state: true },
+      _searchError: { state: true },
     };
   }
 
@@ -33,6 +37,11 @@ class TileMediaCard extends LitElement {
     this._browseLoading = false;
     this._browseError = null;
     this._browseFilter = "";
+    this._rootCanSearch = false;
+    this._searchResults = null;
+    this._searchLoading = false;
+    this._searchError = null;
+    this._searchToken = 0;
   }
 
   static getStubConfig() {
@@ -96,6 +105,8 @@ class TileMediaCard extends LitElement {
 
   _closeBrowse = () => {
     this._browsing = false;
+    clearTimeout(this._searchDebounce);
+    this._searchToken += 1;
   };
 
   _browseBack = () => {
@@ -108,6 +119,11 @@ class TileMediaCard extends LitElement {
     this._browseLoading = true;
     this._browseError = null;
     this._browseFilter = "";
+    this._searchResults = null;
+    this._searchLoading = false;
+    this._searchError = null;
+    clearTimeout(this._searchDebounce);
+    this._searchToken += 1;
     try {
       const result = await this.hass.callWS({
         type: "media_player/browse_media",
@@ -117,6 +133,12 @@ class TileMediaCard extends LitElement {
       });
       this._browseTitle = result.title || "Browse";
       this._browseItems = this._filterItems(result.children || []);
+      // Whole-library search (media_player/search_media) is only offered on
+      // the root screen - once you've drilled into a specific folder/source,
+      // the filter box reverts to just filtering what's already loaded.
+      if (item === undefined) {
+        this._rootCanSearch = !!result.can_search;
+      }
     } catch (err) {
       this._browseError = err.message || "Could not load media";
       this._browseItems = [];
@@ -160,8 +182,57 @@ class TileMediaCard extends LitElement {
     this._closeBrowse();
   };
 
+  // Root screen only, and only if the entity's browse root reports
+  // can_search - everywhere else the filter box just filters what's
+  // already on screen (see _visibleBrowseItems).
+  get _isRootSearchable() {
+    return this._browseStack.length === 0 && this._rootCanSearch;
+  }
+
+  get _isSearching() {
+    return this._isRootSearchable && this._browseFilter.trim().length > 0;
+  }
+
   _browseFilterChanged = (ev) => {
-    this._browseFilter = ev.target.value || "";
+    const value = ev.target.value || "";
+    this._browseFilter = value;
+    if (!this._isRootSearchable) return;
+
+    clearTimeout(this._searchDebounce);
+    const query = value.trim();
+    if (!query) {
+      this._searchResults = null;
+      this._searchLoading = false;
+      this._searchError = null;
+      return;
+    }
+    this._searchDebounce = setTimeout(() => this._runRootSearch(query), 350);
+  };
+
+  // Whole-library search via media_player/search_media - a real HA API for
+  // exactly this, searching everything the backend (e.g. Music Assistant)
+  // indexes rather than just the root's own category folders. Results go
+  // through the same hide_titles/hide_media_classes filtering as normal
+  // browsing so hidden sources stay hidden here too.
+  _runRootSearch = async (query) => {
+    const token = (this._searchToken += 1);
+    this._searchLoading = true;
+    this._searchError = null;
+    try {
+      const result = await this.hass.callWS({
+        type: "media_player/search_media",
+        entity_id: this._config.entity,
+        search_query: query,
+      });
+      if (token !== this._searchToken) return;
+      this._searchResults = this._filterItems(result.result || []);
+    } catch (err) {
+      if (token !== this._searchToken) return;
+      this._searchError = err.message || "Search failed";
+      this._searchResults = [];
+    } finally {
+      if (token === this._searchToken) this._searchLoading = false;
+    }
   };
 
   // Live, in-memory filter over whatever screen is currently showing
@@ -281,44 +352,63 @@ class TileMediaCard extends LitElement {
                 ? html`<ha-input-search
                     class="browse-search"
                     .value=${this._browseFilter}
+                    .placeholder=${this._isRootSearchable ? "Search your whole library" : "Search"}
                     @input=${this._browseFilterChanged}
                   ></ha-input-search>`
                 : ""}
-              <div class="browse-grid">
-                ${this._visibleBrowseItems.map(
-                  (item) => html`
-                    <div class="browse-item" @click=${() => this._selectItem(item)}>
-                      <div
-                        class="thumb"
-                        style=${item.thumbnail ? `background-image:url(${item.thumbnail})` : ""}
-                      >
-                        ${!item.thumbnail
-                          ? html`<ha-icon
-                              icon=${item.can_expand ? "mdi:folder-music" : "mdi:music-note"}
-                            ></ha-icon>`
-                          : ""}
-                        ${item.can_play
-                          ? html`<ha-icon-button
-                              class="play-overlay"
-                              title="Play"
-                              @click=${(ev) => this._playItem(item, ev)}
-                            >
-                              <ha-icon icon="mdi:play-circle"></ha-icon>
-                            </ha-icon-button>`
-                          : ""}
-                      </div>
-                      <div class="item-title">${item.title}</div>
-                    </div>
-                  `
-                )}
-                ${!this._browseItems.length
-                  ? html`<div class="browse-empty">Nothing here</div>`
-                  : !this._visibleBrowseItems.length
-                  ? html`<div class="browse-empty">No matches for "${this._browseFilter}"</div>`
-                  : ""}
-              </div>
+              ${this._isSearching
+                ? this._renderItemsGrid(
+                    this._searchResults || [],
+                    this._searchLoading ? "Searching…" : null,
+                    this._searchError,
+                    `No results for "${this._browseFilter}"`
+                  )
+                : this._renderItemsGrid(
+                    this._visibleBrowseItems,
+                    null,
+                    null,
+                    this._browseItems.length
+                      ? `No matches for "${this._browseFilter}"`
+                      : "Nothing here"
+                  )}
             `}
       </ha-dialog>
+    `;
+  }
+
+  _renderItemsGrid(items, loadingMessage, error, emptyMessage) {
+    if (loadingMessage) return html`<div class="browse-loading">${loadingMessage}</div>`;
+    if (error) return html`<div class="browse-loading">${error}</div>`;
+    return html`
+      <div class="browse-grid">
+        ${items.map(
+          (item) => html`
+            <div class="browse-item" @click=${() => this._selectItem(item)}>
+              <div
+                class="thumb"
+                style=${item.thumbnail ? `background-image:url(${item.thumbnail})` : ""}
+              >
+                ${!item.thumbnail
+                  ? html`<ha-icon
+                      icon=${item.can_expand ? "mdi:folder-music" : "mdi:music-note"}
+                    ></ha-icon>`
+                  : ""}
+                ${item.can_play
+                  ? html`<ha-icon-button
+                      class="play-overlay"
+                      title="Play"
+                      @click=${(ev) => this._playItem(item, ev)}
+                    >
+                      <ha-icon icon="mdi:play-circle"></ha-icon>
+                    </ha-icon-button>`
+                  : ""}
+              </div>
+              <div class="item-title">${item.title}</div>
+            </div>
+          `
+        )}
+        ${!items.length ? html`<div class="browse-empty">${emptyMessage}</div>` : ""}
+      </div>
     `;
   }
 
