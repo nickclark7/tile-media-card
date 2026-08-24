@@ -51,6 +51,11 @@ class TileMediaCard extends LitElement {
     return 4;
   }
 
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    window.removeEventListener("popstate", this._onPopState);
+  }
+
   get _isActive() {
     const stateObj = this._stateObj;
     return !!stateObj && ["playing", "paused", "buffering"].includes(stateObj.state);
@@ -85,21 +90,51 @@ class TileMediaCard extends LitElement {
     });
   };
 
+  // Every level drilled into pushes one history entry (same URL, just a
+  // marker state) so the device's hardware/gesture back button steps back
+  // one browse level at a time instead of leaving the dashboard or closing
+  // the whole dialog in one jump.
   _openBrowse = async () => {
     this._browsing = true;
     this._browseStack = [];
     this._browseError = null;
+    this._historyArmed = true;
+    window.addEventListener("popstate", this._onPopState);
+    history.pushState({ tileMediaCardBrowse: true }, "");
     await this._loadBrowse();
   };
 
+  // Explicit close (X button, or ha-dialog's own "closed" event from a scrim
+  // click/Escape) - unwinds every history entry pushed while browsing so a
+  // later back press doesn't land on a stale no-op state.
   _closeBrowse = () => {
+    if (this._historyArmed) {
+      window.removeEventListener("popstate", this._onPopState);
+      this._historyArmed = false;
+      history.go(-(this._browseStack.length + 1));
+    }
     this._browsing = false;
   };
 
+  // Fires after the browser has already consumed one pushed history entry
+  // (hardware/gesture back, or the header's arrow button via history.back()).
+  // Step the browse stack up to match, or finish closing once we're back
+  // past the root.
+  _onPopState = () => {
+    if (!this._browsing) return;
+    if (this._browseStack.length > 0) {
+      const stack = this._browseStack.slice(0, -1);
+      this._browseStack = stack;
+      this._loadBrowse(stack[stack.length - 1]);
+    } else {
+      window.removeEventListener("popstate", this._onPopState);
+      this._historyArmed = false;
+      this._browsing = false;
+    }
+  };
+
   _browseBack = () => {
-    const stack = this._browseStack.slice(0, -1);
-    this._browseStack = stack;
-    this._loadBrowse(stack[stack.length - 1]);
+    history.back();
   };
 
   async _loadBrowse(item) {
@@ -237,9 +272,10 @@ class TileMediaCard extends LitElement {
       <ha-dialog open hideActions @closed=${this._closeBrowse} .heading=${this._browseTitle}>
         <div slot="heading" class="browse-header">
           ${this._browseStack.length
-            ? html`<ha-icon-button @click=${this._browseBack}>
+            ? html`<div class="back-button" @click=${this._browseBack}>
                 <ha-icon icon="mdi:arrow-left"></ha-icon>
-              </ha-icon-button>`
+                <span>Back</span>
+              </div>`
             : html`<span class="spacer"></span>`}
           <span class="browse-title">${this._browseTitle}</span>
           <ha-icon-button @click=${this._closeBrowse}>
@@ -384,6 +420,22 @@ class TileMediaCard extends LitElement {
         display: flex;
         align-items: center;
         gap: 8px;
+      }
+      .back-button {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 12px 8px 8px;
+        margin-left: -8px;
+        border-radius: 20px;
+        cursor: pointer;
+        color: var(--primary-color);
+        font-size: 0.9rem;
+        font-weight: 500;
+        flex-shrink: 0;
+      }
+      .back-button:hover {
+        background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.1);
       }
       .spacer {
         width: 48px;
